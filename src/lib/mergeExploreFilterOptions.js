@@ -71,7 +71,7 @@ export function groupExploreSetsBySource(rows) {
       buckets.tcg.push(set);
     } else if (origin === "pokemontcg.io") {
       buckets.tcg.push(set);
-    } else if (origin === "tcgdex" && POCKET_SERIES.has(series)) {
+    } else if (origin === "pocketdb" || (origin === "tcgdex" && POCKET_SERIES.has(series))) {
       buckets.pocket.push(set);
     } else if (origin === "tcgdex" || origin === "ptcgdb") {
       buckets.japanese.push(set);

@@ -1,3 +1,4 @@
+import { cardSourceForRow } from "../lib/cardSource.js";
 /**
  * ExplorePage — Phase 4: primary Explore route (grid, filters, search, card detail).
  * Data via db.js router (DuckDB or Supabase).
@@ -620,7 +621,7 @@ export default function ExplorePage() {
     const idx = displayedCards.findIndex((c) => c.id === selectedCardId);
     if (idx < 0) return;
     const prefetchCard = (card) => {
-      const src = filters.source || (card.is_promo ? "Promo" : (card.origin === "tcgdex" || card.origin === "ptcgdb") ? "Pocket" : "TCG");
+      const src = filters.source || cardSourceForRow(card);
       queryClient.prefetchQuery({
         queryKey: ["cardDetail", card.id, src],
         queryFn: () => fetchCard(card.id, src),

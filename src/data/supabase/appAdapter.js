@@ -20,7 +20,7 @@ import {
   mergeSortedUniqueStrings,
 } from "../../lib/exploreFilterOptionsSource.js";
 import { applyExploreSetIdFilter } from "../../lib/exploreSetFilter.js";
-import { isPocketOrigin } from "../../lib/cardSource.js";
+import { isPocketOrigin, POCKET_ORIGINS, CATALOG_ORIGINS, applyPocketSourceFilter } from "../../lib/cardSource.js";
 import { BATCH_EDIT_MAX_CARDS } from "../../lib/batchLimits.js";
 import { fixDisplayText } from "../../lib/fixUtf8Mojibake.js";
 import { applyPokumonArchiveFilter } from "../../lib/pokumonArchiveFilter.js";
@@ -876,13 +876,13 @@ export async function fetchCards(params = {}) {
         cq = cq.or("and(origin.eq.tcgdex,origin_detail.eq.japanese),and(origin.eq.ptcgdb,origin_detail.eq.japanese)");
         for (const setId of HIDDEN_JPN_SET_IDS) cq = cq.neq("set_id", setId);
       } else if (source === "Pocket") {
-        cq = cq.eq("origin", "tcgdex").or("origin_detail.is.null,origin_detail.neq.japanese");
+        cq = applyPocketSourceFilter(cq);
       } else if (source === "Custom") {
         cq = cq.eq("origin", "manual").or("origin_detail.is.null,origin_detail.neq.pokumon");
       } else if (source === "Promo") {
         cq = cq.eq("origin", "manual").eq("origin_detail", "pokumon");
       } else {
-        cq = cq.in("origin", ["pokemontcg.io", "manual", "tcgdex", "ptcgdb"]);
+        cq = cq.in("origin", CATALOG_ORIGINS);
         cq = excludeHiddenJapaneseSets(cq);
       }
 
@@ -1033,7 +1033,7 @@ export async function fetchCards(params = {}) {
     );
     for (const setId of HIDDEN_JPN_SET_IDS) query = query.neq("set_id", setId);
   } else if (source === "Pocket") {
-    query = query.eq("origin", "tcgdex").or("origin_detail.is.null,origin_detail.neq.japanese");
+    query = applyPocketSourceFilter(query);
   } else if (source === "Custom") {
     // NULL origin_detail must stay in Custom (legacy manual rows). Plain
     // `.not('origin_detail','eq','pokumon')` drops NULLs (SQL NOT (col = 'x')).
@@ -1042,7 +1042,7 @@ export async function fetchCards(params = {}) {
     query = query.eq("origin", "manual").eq("origin_detail", "pokumon");
   } else {
     // Source "All" (empty string) — every origin
-    query = query.in("origin", ["pokemontcg.io", "manual", "tcgdex", "ptcgdb"]);
+    query = query.in("origin", CATALOG_ORIGINS);
     query = excludeHiddenJapaneseSets(query);
   }
 
@@ -1452,7 +1452,7 @@ export async function fetchCard(id, _source = "TCG") {
   if (error) throw error;
   if (!row) throw new Error("Card not found");
 
-  const isPocket = row.origin === "tcgdex" || row.origin === "ptcgdb";
+  const isPocket = row.origin === "tcgdex" || row.origin === "ptcgdb" || isPocketOrigin(row.origin, row.origin_detail);
 
   const annRow = normalizeEmbeddedAnnotation(row.annotations);
   const creator_display_name = row.created_by ? displayNameFromProfileEmbed(row.profiles) : null;
@@ -1485,21 +1485,21 @@ export async function fetchCard(id, _source = "TCG") {
   const prices = row.prices && typeof row.prices === "object" ? row.prices : {};
 
   if (isPocket) {
-    const weaknesses = row.weakness ? [{ type: row.weakness, value: "" }] : [];
+    const weaknesses = merged.weakness ? [{ type: merged.weakness, value: "" }] : [];
     return {
-      id: row.id,
-      name: row.name,
-      supertype: normalizeSupertypeDisplay(row.card_type || ""),
+      id: merged.id,
+      name: merged.name,
+      supertype: normalizeSupertypeDisplay(merged.card_type || ""),
       subtypes: "[]",
-      hp: row.hp,
-      types: row.element ? JSON.stringify([row.element]) : "[]",
-      evolves_from: row.evolves_from || null,
-      rarity: row.rarity,
-      artist: row.artist || null,
-      set_id: row.set_id,
-      set_name: row.set_name,
-      set_series: row.set_series,
-      number: String(row.number),
+      hp: merged.hp,
+      types: merged.element ? JSON.stringify([merged.element]) : "[]",
+      evolves_from: merged.evolves_from || null,
+      rarity: merged.rarity,
+      artist: merged.artist || null,
+      set_id: merged.set_id,
+      set_name: merged.set_name,
+      set_series: merged.set_series,
+      number: String(merged.number),
       regulation_mark: null,
       image_small: merged.image_small || row.image_small,
       image_large: merged.image_large || row.image_large,
@@ -1509,14 +1509,14 @@ export async function fetchCard(id, _source = "TCG") {
       prices: null,
       pokedex_numbers: [],
       genus: null,
-      stage: row.stage || null,
-      packs: Array.isArray(row.packs) ? row.packs : [],
-      retreat_cost: row.retreat_cost,
-      element: row.element || null,
+      stage: merged.stage || null,
+      packs: Array.isArray(merged.packs) ? merged.packs : [],
+      retreat_cost: merged.retreat_cost,
+      element: merged.element || null,
       source: "Pocket",
       is_custom: false,
-      created_by: row.created_by ?? null,
-      created_at: row.created_at ?? null,
+      created_by: merged.created_by ?? null,
+      created_at: merged.created_at ?? null,
       creator_display_name,
       annotation_editor_display_name,
     };
@@ -1593,11 +1593,11 @@ export async function fetchFilterOptions(source = "TCG") {
 
   if (source === "Pocket") {
     const [card_types, rarities, elements, stages, setIds] = await Promise.all([
-      distinctColumn("card_type", "tcgdex", null, "japanese"),
-      distinctColumn("rarity", "tcgdex", null, "japanese"),
-      distinctColumn("element", "tcgdex", null, "japanese"),
-      distinctColumn("stage", "tcgdex", null, "japanese"),
-      distinctColumn("set_id", "tcgdex", null, "japanese"),
+      distinctColumn("card_type", POCKET_ORIGINS, null, "japanese"),
+      distinctColumn("rarity", POCKET_ORIGINS, null, "japanese"),
+      distinctColumn("element", POCKET_ORIGINS, null, "japanese"),
+      distinctColumn("stage", POCKET_ORIGINS, null, "japanese"),
+      distinctColumn("set_id", POCKET_ORIGINS, null, "japanese"),
     ]);
     const setsData = setIds.length > 0
       ? await sb.from("sets").select("id, name, series").in("id", setIds)
@@ -2818,7 +2818,7 @@ export async function fetchDataHealthSummary() {
 
   const totalCards = cardsRes.count ?? 0;
   const annotationRows = annRes.count ?? 0;
-  const originKeys = ["pokemontcg.io", "tcgdex", "manual"];
+  const originKeys = CATALOG_ORIGINS;
   const originCounts = await Promise.all(
     originKeys.map((origin) =>
       sb.from("cards").select("id", { count: "exact", head: true }).eq("origin", origin)
