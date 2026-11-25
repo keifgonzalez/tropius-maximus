@@ -3,6 +3,8 @@
  * while the Source control still scopes the card query.
  */
 
+import { ENGLISH_PRINT_ORIGINS } from "./cardSource.js";
+
 function normalizeSupertypeDisplay(s) {
   if (!s || typeof s !== "string") return s;
   const norm = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -69,7 +71,7 @@ export function groupExploreSetsBySource(rows) {
     if (origin === "manual") {
       buckets.custom.push(set);
       buckets.tcg.push(set);
-    } else if (origin === "pokemontcg.io") {
+    } else if (ENGLISH_PRINT_ORIGINS.includes(origin)) {
       buckets.tcg.push(set);
     } else if (origin === "pocketdb" || (origin === "tcgdex" && POCKET_SERIES.has(series))) {
       buckets.pocket.push(set);

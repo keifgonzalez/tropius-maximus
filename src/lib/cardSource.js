@@ -12,7 +12,13 @@ export function isPocketOrigin(origin, originDetail) {
 }
 
 export const POCKET_ORIGINS = ["tcgdex", "pocketdb"];
-export const CATALOG_ORIGINS = ["pokemontcg.io", "manual", "tcgdex", "ptcgdb", "pocketdb"];
+export const ENGLISH_PRINT_ORIGINS = ["pokemontcg.io", "tcgplayer"];
+export const ENGLISH_TCG_FILTER_ORIGINS = [...ENGLISH_PRINT_ORIGINS, "manual"];
+export const CATALOG_ORIGINS = [...ENGLISH_TCG_FILTER_ORIGINS, "tcgdex", "ptcgdb", "pocketdb"];
+
+export function applyEnglishTcgSourceFilter(query) {
+  return query.in("origin", ENGLISH_TCG_FILTER_ORIGINS).or("origin_detail.is.null,origin_detail.neq.japanese");
+}
 
 // Shared by page, exact-count and fallback-filter paths.
 export function applyPocketSourceFilter(query) {

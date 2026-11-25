@@ -20,7 +20,10 @@ import {
   mergeSortedUniqueStrings,
 } from "../../lib/exploreFilterOptionsSource.js";
 import { applyExploreSetIdFilter } from "../../lib/exploreSetFilter.js";
-import { isPocketOrigin, POCKET_ORIGINS, CATALOG_ORIGINS, applyPocketSourceFilter } from "../../lib/cardSource.js";
+import {
+  isPocketOrigin, POCKET_ORIGINS, CATALOG_ORIGINS,
+  ENGLISH_TCG_FILTER_ORIGINS, applyEnglishTcgSourceFilter, applyPocketSourceFilter,
+} from "../../lib/cardSource.js";
 import { BATCH_EDIT_MAX_CARDS } from "../../lib/batchLimits.js";
 import { fixDisplayText } from "../../lib/fixUtf8Mojibake.js";
 import { applyPokumonArchiveFilter } from "../../lib/pokumonArchiveFilter.js";
@@ -871,7 +874,7 @@ export async function fetchCards(params = {}) {
       let cq = sb.from("cards").select("id", { count: "exact", head: true });
 
       if (source === "TCG") {
-        cq = cq.in("origin", ["pokemontcg.io", "manual"]).or("origin_detail.is.null,origin_detail.neq.japanese");
+        cq = applyEnglishTcgSourceFilter(cq);
       } else if (source === "TCG (JPN)") {
         cq = cq.or("and(origin.eq.tcgdex,origin_detail.eq.japanese),and(origin.eq.ptcgdb,origin_detail.eq.japanese)");
         for (const setId of HIDDEN_JPN_SET_IDS) cq = cq.neq("set_id", setId);
@@ -1025,7 +1028,7 @@ export async function fetchCards(params = {}) {
       : queryBase.select(selectColumns, { count: exact_count ? "exact" : "planned" });
 
   if (source === "TCG") {
-    query = query.in("origin", ["pokemontcg.io", "manual"]).or("origin_detail.is.null,origin_detail.neq.japanese");
+    query = applyEnglishTcgSourceFilter(query);
   } else if (source === "TCG (JPN)") {
     query = query.or(
       "and(origin.eq.tcgdex,origin_detail.eq.japanese)," +
@@ -1704,16 +1707,13 @@ export async function fetchFilterOptions(source = "TCG") {
     };
   }
 
-  // TCG + custom (all non-Pocket). Exclude origin_detail='japanese' from
-  // pokemontcg.io origin so Japanese cards don't leak into English TCG facets.
-  // Manual origin cards don't have origin_detail='japanese', so a single
-  // origin=in(pokemontcg.io,manual) call per column replaces the old serial IIFEs.
+  // English TCG facets include legacy manual cards and exclude Japanese rows.
   const [st, rar, setIds, artists, pmAll] =
     await Promise.all([
-      distinctColumn("supertype", ["pokemontcg.io", "manual"], null, "japanese"),
-      distinctColumn("rarity", ["pokemontcg.io", "manual"], null, "japanese"),
-      distinctColumn("set_id", ["pokemontcg.io", "manual"], null, "japanese"),
-      distinctColumn("artist", ["pokemontcg.io", "manual"], null, "japanese"),
+      distinctColumn("supertype", ENGLISH_TCG_FILTER_ORIGINS, null, "japanese"),
+      distinctColumn("rarity", ENGLISH_TCG_FILTER_ORIGINS, null, "japanese"),
+      distinctColumn("set_id", ENGLISH_TCG_FILTER_ORIGINS, null, "japanese"),
+      distinctColumn("artist", ENGLISH_TCG_FILTER_ORIGINS, null, "japanese"),
       sb.from("pokemon_metadata").select("region,generation,color,evolution_chain"),
     ]);
 

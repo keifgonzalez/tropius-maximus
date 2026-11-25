@@ -98,6 +98,7 @@ export function setIdConflict(setId, setName, sets) {
 
 const ORIGIN_LABELS = {
   "pokemontcg.io": "English TCG",
+  tcgplayer: "English TCG (TCGplayer)",
   tcgdex: "TCGdex",
   ptcgdb: "Japanese PTCG-db",
   manual: "custom",

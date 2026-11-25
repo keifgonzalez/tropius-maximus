@@ -28,6 +28,7 @@ const navLinkClass = ({ isActive }) =>
 
 const ORIGIN_LABELS = {
   "pokemontcg.io": "Pokémon TCG API",
+  tcgplayer: "TCGplayer (English TCG)",
   tcgdex: "Pocket (TCGdex)",
   manual: "Manual / custom",
 };

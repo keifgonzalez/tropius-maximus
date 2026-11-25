@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createClient } from "@supabase/supabase-js";
+import { applyEnglishTcgSourceFilter, cardSourceForRow, CATALOG_ORIGINS } from "../cardSource.js";
 
 import {
   groupExploreSetsBySource,
@@ -12,6 +14,7 @@ import {
 test("groups live set rows into the Explore source buckets", () => {
   const grouped = groupExploreSetsBySource([
     { id: "me55", name: "30th Celebration", series: "Mega Evolution", origin: "pokemontcg.io" },
+    { id: "mcd26", name: "McDonald's Collection 2026", series: "Mega Evolution", origin: "tcgplayer" },
     { id: "B2a", name: "Paldean Wonders", series: "tcgp", origin: "tcgdex" },
     { id: "SV11W", name: "White Flare", series: "Scarlet & Violet", origin: "tcgdex" },
     { id: "custom-1", name: "Custom Set", series: null, origin: "manual" },
@@ -21,7 +24,18 @@ test("groups live set rows into the Explore source buckets", () => {
   assert.deepEqual(grouped.pocket.map((set) => set.id), ["B2a"]);
   assert.deepEqual(grouped.japanese.map((set) => set.id), ["ptcg-1", "SV11W"]);
   assert.deepEqual(grouped.custom.map((set) => set.id), ["custom-1"]);
-  assert.deepEqual(grouped.tcg.map((set) => set.id), ["custom-1", "me55"]);
+  assert.deepEqual(grouped.tcg.map((set) => set.id), ["custom-1", "me55", "mcd26"]);
+});
+
+test("English TCG list and count filters include TCGplayer and exclude Japanese cards", () => {
+  const client = createClient("https://example.test", "anon-key", { auth: { persistSession: false } });
+  for (const options of [{}, { count: "exact", head: true }]) {
+    const query = applyEnglishTcgSourceFilter(client.from("cards").select("id", options));
+    assert.equal(query.url.searchParams.get("origin"), "in.(pokemontcg.io,tcgplayer,manual)");
+    assert.equal(query.url.searchParams.get("or"), "(origin_detail.is.null,origin_detail.neq.japanese)");
+  }
+  assert.ok(CATALOG_ORIGINS.includes("tcgplayer"));
+  assert.equal(cardSourceForRow({ origin: "tcgplayer", format: "promotional" }), "TCG");
 });
 
 test("puts Pocket sets with the published series label in the Pocket bucket", () => {
