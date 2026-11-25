@@ -5,7 +5,7 @@
  * public/data/custom_cards.json in the repo.
  */
 
-const OWNER = "CmdrKerfy";
+const OWNER = "keifgonzalez";
 const REPO = "tropius-maximus";
 const FILE_PATH = "public/data/custom_cards.json";
 const ANNOTATIONS_FILE_PATH = "public/data/annotations.json";
