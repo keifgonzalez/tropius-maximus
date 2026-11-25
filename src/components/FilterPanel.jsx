@@ -27,6 +27,10 @@ function seriesBucketKey(seriesRaw) {
   return { key: s, header: s, sort: 1 };
 }
 
+function normalizeOptionSearch(value) {
+  return String(value ?? "").normalize("NFKC").toLowerCase().replace(/['’‘ʼ]/g, "").trim();
+}
+
 function MultiSelectDropdown({
   options,
   values,
@@ -39,6 +43,8 @@ function MultiSelectDropdown({
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef(null);
+  const triggerRef = useRef(null);
+  const [portalContainer, setPortalContainer] = useState(undefined);
 
   const getVal = (o) => (o && typeof o === "object" ? o.value : o);
   const getLabel = (o) => (o && typeof o === "object" ? o.label : o);
@@ -70,32 +76,41 @@ function MultiSelectDropdown({
     (disabled ? "opacity-50 cursor-not-allowed bg-gray-50 text-gray-500 " : "") +
     className;
 
-  const filterText = String(search || "").trim().toLowerCase();
-  const optionMatches = (label) => {
-    if (!filterText) return true;
-    return String(label || "").toLowerCase().includes(filterText);
-  };
+  const filterText = normalizeOptionSearch(search);
+  const optionMatches = (label) => !filterText || normalizeOptionSearch(label).includes(filterText);
 
   return (
     <div className="min-w-0" title={disabled ? disabledTitle : undefined}>
       <DropdownMenu
-        onOpenChange={(next) => {
-          if (next && searchable) {
-            setSearch("");
-            setTimeout(() => searchRef.current?.focus(), 0);
+        modal={false}
+        onOpenChange={(open) => {
+          setSearch("");
+          if (open) {
+            // Keep mobile menus inside the sheet so its scroll lock permits their input.
+            setPortalContainer(triggerRef.current?.closest('[role="dialog"]') ?? undefined);
           }
-          if (!next) setSearch("");
         }}
       >
         <DropdownMenuTrigger asChild>
-          <button type="button" disabled={disabled} className={btnCls} aria-label="Choose filter options">
+          <button ref={triggerRef} type="button" disabled={disabled} className={btnCls} aria-label="Choose filter options">
             <span className="flex-1 truncate">{displayText}</span>
             <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="p-0 overflow-hidden">
+        <DropdownMenuContent
+          align="start"
+          portalContainer={portalContainer}
+          collisionBoundary={portalContainer}
+          collisionPadding={8}
+          onOpenAutoFocus={(event) => {
+            if (!searchRef.current) return;
+            event.preventDefault();
+            searchRef.current.focus({ preventScroll: true });
+          }}
+          className="flex max-h-[min(22rem,var(--radix-dropdown-menu-content-available-height))] max-w-[min(24rem,var(--radix-dropdown-menu-content-available-width))] flex-col overflow-hidden p-0"
+        >
           {searchable && (
-            <div className="p-2 border-b border-gray-100">
+            <div className="shrink-0 p-2 border-b border-gray-100">
               <input
                 ref={searchRef}
                 type="text"
@@ -107,10 +122,10 @@ function MultiSelectDropdown({
               />
             </div>
           )}
-          <div className="max-h-[min(18rem,60vh)] overflow-y-auto p-1.5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
             {groups ? (
               groups.map(({ id, header, sets }, idx) => {
-                const filtered = sets.filter((s) => optionMatches(s.name));
+                const filtered = sets.filter((s) => optionMatches(s.name) || optionMatches(s.id));
                 if (filtered.length === 0) return null;
                 return (
                   <div key={id}>

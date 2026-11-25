@@ -5,9 +5,9 @@ export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuLabel = DropdownMenuPrimitive.Label;
 
-export function DropdownMenuContent({ className = "", sideOffset = 8, align = "end", ...props }) {
+export function DropdownMenuContent({ className = "", sideOffset = 8, align = "end", portalContainer, ...props }) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={portalContainer}>
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
         align={align}
