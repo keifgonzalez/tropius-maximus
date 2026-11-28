@@ -8,11 +8,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Search, X } from "lucide-react";
+import { exactExploreCardTitle, resolveExploreSpecies } from "../lib/exploreSpeciesSearch.js";
 
 /** Explore skips shorter terms (no usable trigrams; see ExplorePage). */
 export const MIN_SEARCH_LENGTH = 3;
 
-export default function SearchBar({ value, onChange }) {
+export default function SearchBar({ value, onChange, speciesSearchEnabled = false }) {
   // Local input value updates immediately for responsive typing feel.
   const [inputValue, setInputValue] = useState(value);
   const timerRef = useRef(null);
@@ -48,7 +49,9 @@ export default function SearchBar({ value, onChange }) {
     }, delay);
   };
 
-  const tooShort = inputValue.length > 0 && inputValue.length < MIN_SEARCH_LENGTH;
+  const species = speciesSearchEnabled ? resolveExploreSpecies(inputValue) : null;
+  const exactTitle = speciesSearchEnabled ? exactExploreCardTitle(inputValue) : null;
+  const tooShort = inputValue.length > 0 && inputValue.length < MIN_SEARCH_LENGTH && !species && !exactTitle;
 
   // Clean up timer on unmount.
   useEffect(() => {
@@ -113,7 +116,9 @@ export default function SearchBar({ value, onChange }) {
       <p id="explore-search-hint" aria-live="polite" className={`mt-1 text-xs ${tooShort ? "text-amber-700" : "text-gray-400"}`}>
         {tooShort
           ? `Type at least ${MIN_SEARCH_LENGTH} characters to search.`
-          : "Use + or | to search multiple names (e.g. Eevee + イーブイ)"}
+          : species
+            ? `Searching for ${species.name} across languages. Use quotes for an exact card title.`
+            : "Use + or | to search multiple names (e.g. Eevee + イーブイ)"}
       </p>
     </form>
   );

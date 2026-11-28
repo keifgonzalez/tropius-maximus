@@ -25,6 +25,7 @@ import {
 } from "../db";
 import { getToken, setToken, deleteCardsFromGitHub, getFileContents, updateFileContents, pollWorkflowRun } from "../lib/github";
 import SearchBar, { MIN_SEARCH_LENGTH } from "../components/SearchBar";
+import { exactExploreCardTitle, resolveExploreSpecies } from "../lib/exploreSpeciesSearch.js";
 import FilterPanel, {
   ExploreSetPicker,
   getExploreSourceSets,
@@ -369,7 +370,9 @@ export default function ExplorePage() {
   const searchActive = String(searchQuery || "").trim().length > 0;
   // The card query is disabled for these (see `enabled` below); TanStack v5
   // keeps a disabled query "pending", so without this the grid skeleton spins forever.
-  const searchTooShort = searchQuery.length > 0 && searchQuery.length < MIN_SEARCH_LENGTH;
+  const indexedNameSearch = USE_SUPABASE_APP &&
+    (resolveExploreSpecies(searchQuery) || exactExploreCardTitle(searchQuery));
+  const searchTooShort = searchQuery.length > 0 && searchQuery.length < MIN_SEARCH_LENGTH && !indexedNameSearch;
 
   // Debounce params 500ms before firing the exact count query. Exact counts are skipped
   // during active search; planned counts keep search/page navigation responsive.
@@ -1505,7 +1508,12 @@ export default function ExplorePage() {
         <div className={experimentalNav ? "-mx-4 px-4 sticky top-0 z-[15] bg-tm-cream/95 backdrop-blur-sm border-b border-gray-200/90 py-2 mb-3 shadow-sm" : undefined}>
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <SearchBar key={searchReset} value={searchQuery} onChange={handleSearch} />
+              <SearchBar
+                key={searchReset}
+                value={searchQuery}
+                onChange={handleSearch}
+                speciesSearchEnabled={USE_SUPABASE_APP}
+              />
             </div>
             <div className="shrink-0">
               <ExploreSetPicker

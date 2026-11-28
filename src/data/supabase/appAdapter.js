@@ -27,6 +27,7 @@ import {
 import { BATCH_EDIT_MAX_CARDS } from "../../lib/batchLimits.js";
 import { fixDisplayText } from "../../lib/fixUtf8Mojibake.js";
 import { applyPokumonArchiveFilter } from "../../lib/pokumonArchiveFilter.js";
+import { exactExploreCardTitle, resolveExploreSpecies } from "../../lib/exploreSpeciesSearch.js";
 
 export { BATCH_EDIT_MAX_CARDS };
 
@@ -867,11 +868,16 @@ export async function fetchCards(params = {}) {
     signal = undefined,
     count_only = false,
   } = params;
+  const qTrim = String(q ?? "").trim();
+  const species = resolveExploreSpecies(qTrim);
+  const exactTitle = exactExploreCardTitle(qTrim);
+  const cardsTable = species ? "explore_species_cards" : "cards";
 
   // ── Count-only fast path: lightweight head request, cards only, no annotations ──
   if (count_only) {
     const buildCountQuery = (hasImage) => {
-      let cq = sb.from("cards").select("id", { count: "exact", head: true });
+      let cq = sb.from(cardsTable).select("id", { count: "exact", head: true });
+      if (species) cq = cq.eq("species_id", species.id);
 
       if (source === "TCG") {
         cq = applyEnglishTcgSourceFilter(cq);
@@ -889,9 +895,10 @@ export async function fetchCards(params = {}) {
         cq = excludeHiddenJapaneseSets(cq);
       }
 
-      const qTrimCount = String(q ?? "").trim();
-      if (qTrimCount) {
-        const likePattern = buildNameSearchIlikePattern(qTrimCount);
+      if (exactTitle) {
+        cq = cq.eq("name", exactTitle);
+      } else if (qTrim && !species) {
+        const likePattern = buildNameSearchIlikePattern(qTrim);
         if (Array.isArray(likePattern)) {
           cq = cq.or(likePattern.map((p) => `name.ilike.${p}`).join(","));
         } else if (likePattern) {
@@ -1011,7 +1018,6 @@ export async function fetchCards(params = {}) {
     hasJumboCardFilter ||
     hasAnnotationIssueFilter;
 
-  const qTrim = String(q ?? "").trim();
   const useSearchCursor = Boolean(qTrim && lookahead);
   const usePromoProjection = source === "Promo" && lookahead && !exact_count && !ids_only &&
     !qTrim && !useAnnInner && !String(has_image || "").trim();
@@ -1028,11 +1034,9 @@ export async function fetchCards(params = {}) {
     ? (useAnnInner ? `id, set_id, number, origin, ${annSelect}` : "id, set_id, number, origin")
     : `id, name, set_id, set_name, image_small, image_large, number, hp, rarity, origin, origin_detail, supertype, subtypes, created_by, ${annSelect}`;
 
-  const queryBase = sb.from("cards");
-  let query =
-    lookahead && !exact_count
-      ? queryBase.select(selectColumns)
-      : queryBase.select(selectColumns, { count: exact_count ? "exact" : "planned" });
+  const countPreference = lookahead && !exact_count ? undefined : exact_count ? "exact" : "planned";
+  let query = sb.from(cardsTable).select(selectColumns, { count: countPreference });
+  if (species) query = query.eq("species_id", species.id);
 
   if (source === "TCG") {
     query = applyEnglishTcgSourceFilter(query);
@@ -1056,7 +1060,9 @@ export async function fetchCards(params = {}) {
     query = excludeHiddenJapaneseSets(query);
   }
 
-  if (qTrim) {
+  if (exactTitle) {
+    query = query.eq("name", exactTitle);
+  } else if (qTrim && !species) {
     const likePattern = buildNameSearchIlikePattern(qTrim);
     if (Array.isArray(likePattern)) {
       query = query.or(likePattern.map((p) => `name.ilike.${p}`).join(","));
@@ -1204,8 +1210,8 @@ export async function fetchCards(params = {}) {
     query = query.limit(pageSizeInt + 1);
   } else {
     // number_sort_key (generated) avoids lexicographic sort on TEXT `number`.
-    query = query.order(orderCol, { ascending, nullsFirst: false });
-    if (sort_by === "number") {
+    query = query.order(species ? "name" : orderCol, { ascending: species ? true : ascending, nullsFirst: false });
+    if (species || sort_by === "number") {
       query = query.order("id", { ascending: true, nullsFirst: false });
     } else if (sort_by === "recent") {
       // Keep "recent desc" stable when many rows share near-identical created_at.
