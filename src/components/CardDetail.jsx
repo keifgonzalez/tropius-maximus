@@ -1735,18 +1735,21 @@ export default function CardDetail({
                       </span>
                     )
                   ))}
-                  {headerSet.label && !isEditMode && onFilterClick && (
+                  {headerSet.label && !isEditMode && (onFilterClick && String(card.set_id || "").trim() ? (
                     <button
+                      type="button"
                       onClick={() => {
                         const setId = String(card.set_id || "").trim();
                         if (setId) onFilterClick("set_id", setId);
                       }}
                       title={headerSet.named ? undefined : "Set name not recorded yet; showing the set code"}
-                      className="px-2 py-0.5 rounded text-xs font-normal border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                      className="px-2 py-0.5 rounded text-xs font-medium border border-tm-leaf/30 bg-tm-cream text-tm-canopy hover:underline transition-colors"
                     >
-                      {headerSet.label}
+                      View set · {headerSet.label}
                     </button>
-                  )}
+                  ) : (
+                    <span className="px-2 py-0.5 text-xs text-slate-600">{headerSet.label}</span>
+                  ))}
                   {headerArtistChip && !isEditMode && onFilterClick && (
                     <button
                       type="button"

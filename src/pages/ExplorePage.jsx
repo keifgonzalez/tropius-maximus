@@ -25,7 +25,12 @@ import {
 } from "../db";
 import { getToken, setToken, deleteCardsFromGitHub, getFileContents, updateFileContents, pollWorkflowRun } from "../lib/github";
 import SearchBar, { MIN_SEARCH_LENGTH } from "../components/SearchBar";
-import FilterPanel from "../components/FilterPanel";
+import FilterPanel, {
+  ExploreSetPicker,
+  getExploreSourceSets,
+  normalizeOptionSearch,
+  setMatchesSearch,
+} from "../components/FilterPanel";
 import CardGrid from "../components/CardGrid";
 import Pagination from "../components/Pagination";
 import AuthUserMenu from "../components/AuthUserMenu.jsx";
@@ -238,6 +243,7 @@ export default function ExplorePage() {
   });
 
   // ── Search and filter state ─────────────────────────────────────────
+  const [searchReset, setSearchReset] = useState(0);
   const [searchQuery, setSearchQuery] = useState(() => {
     const { searchQuery: urlQ } = readUrlState();
     if (urlQ !== null) return urlQ;
@@ -556,6 +562,15 @@ export default function ExplorePage() {
   const error = cardsQueryFailed ? cardsQueryError?.message ?? "Failed to load cards" : null;
   /** Skeleton only when there is no list data yet (keeps previous page visible while paginating). */
   const listAwaitingFirstData = !sqlCards && !searchTooShort && cardsResult === undefined && cardsPending;
+  const sourceSets = getExploreSourceSets(filterOptions ?? EMPTY_FILTER_OPTIONS, filters.source);
+  const setSearchTerm = normalizeOptionSearch(searchQuery);
+  const matchingSets = !sqlCards && !searchTooShort && cardsResult && !isFetching &&
+    !supabaseSessionIsAnonymous && exploreFilterAvail.set_id && setSearchTerm && cards.length === 0
+    ? sourceSets.filter((set) => setMatchesSearch(set, setSearchTerm))
+        .sort((a, b) => Number(normalizeOptionSearch(b.id) === setSearchTerm) -
+          Number(normalizeOptionSearch(a.id) === setSearchTerm))
+        .slice(0, 5)
+    : [];
 
   useEffect(() => {
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
@@ -678,6 +693,14 @@ export default function ExplorePage() {
   // Debounce non-source filter changes so rapid checkbox clicks batch into one query.
   const filterDebounceRef = useRef(null);
   const pendingFilterRef = useRef({});
+
+  const openExploreSet = (setId, source = filters.source) => {
+    clearTimeout(filterDebounceRef.current);
+    pendingFilterRef.current = {};
+    handleSearch("");
+    setSearchReset((value) => value + 1);
+    setFilters({ ...DEFAULT_FILTERS, source, set_id: [setId] });
+  };
 
   const handleFilterChange = (newFilters) => {
     // Source changes apply immediately — they reset everything.
@@ -1496,28 +1519,34 @@ export default function ExplorePage() {
           </div>
         )}
 
-        {/* Search + count: sticky strip under global shell (Phase 3); full filter panel stays below */}
-        {experimentalNav ? (
-          <div className="-mx-4 px-4 sticky top-0 z-[15] bg-tm-cream/95 backdrop-blur-sm border-b border-gray-200/90 py-2 mb-3 shadow-sm">
-            <SearchBar value={searchQuery} onChange={handleSearch} />
-            {!sqlCards && (
-              <div className="mt-2 text-sm text-gray-500">
-                {listAwaitingFirstData ? (
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-4 w-40 rounded" />
-                    <span className="sr-only">Loading results…</span>
-                  </div>
-                ) : (
-                  countLabel
-                )}
-              </div>
-            )}
+        <div className={experimentalNav ? "-mx-4 px-4 sticky top-0 z-[15] bg-tm-cream/95 backdrop-blur-sm border-b border-gray-200/90 py-2 mb-3 shadow-sm" : undefined}>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <SearchBar key={searchReset} value={searchQuery} onChange={handleSearch} />
+            </div>
+            <div className="shrink-0">
+              <ExploreSetPicker
+                sourceSets={sourceSets}
+                values={filters.set_id || []}
+                label="Browse sets"
+                onPick={openExploreSet}
+                disabled={!exploreFilterAvail.set_id || sourceSets.length === 0}
+              />
+            </div>
           </div>
-        ) : (
-          <>
-            <SearchBar value={searchQuery} onChange={handleSearch} />
-          </>
-        )}
+          {experimentalNav && !sqlCards && (
+            <div className="mt-2 text-sm text-gray-500">
+              {listAwaitingFirstData ? (
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-40 rounded" />
+                  <span className="sr-only">Loading results…</span>
+                </div>
+              ) : (
+                countLabel
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Filters — shell shows immediately; options fill in when the query resolves */}
         <FilterPanel
@@ -2044,6 +2073,20 @@ export default function ExplorePage() {
           </p>
         ) : (!error || sqlCards) && (
           <div className={`transition-opacity duration-200 ${isFetching && !listAwaitingFirstData ? "opacity-60" : "opacity-100"}`}>
+            {matchingSets.length > 0 && (
+              <section aria-label="Matching sets" className="mb-4 rounded-lg border border-tm-leaf/25 bg-tm-cream p-3">
+                <p className="mb-2 text-sm font-semibold text-tm-canopy">Matching sets</p>
+                <ul className="flex flex-wrap gap-2">
+                  {matchingSets.map((set) => (
+                    <li key={set.id}>
+                      <Button variant="secondary" size="sm" onClick={() => openExploreSet(set.id)}>
+                        {set.name} ({set.id})
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <CardGrid
               cards={displayedCards}
               loading={sqlCards ? false : listAwaitingFirstData}
@@ -2127,6 +2170,10 @@ export default function ExplorePage() {
                   onNext={() => setSelectedCardId(cardIds[currentIndex + 1])}
                   onFilterClick={(filterKey, filterValue) => {
                     setSelectedCardId(null);
+                    if (filterKey === "set_id") {
+                      openExploreSet(filterValue, "");
+                      return;
+                    }
                     setPage(1);
                     if (filterKey === "q") {
                       setSearchQuery(String(filterValue ?? ""));

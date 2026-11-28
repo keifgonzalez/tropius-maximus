@@ -1230,8 +1230,10 @@ export async function fetchCards(params = {}) {
     const byKey = new Map();
     for (const row of rows) {
       const key = buildJpnCardKey(row.set_id, row.number);
-      if (!key) {
-        byKey.set(row.id, row);
+      // Zero is the normalization fallback for unnumbered prints, so it
+      // cannot establish that two rows represent the same card.
+      if (!key || key.endsWith(":0")) {
+        byKey.set(`id:${row.id}`, row);
         continue;
       }
       const existing = byKey.get(key);

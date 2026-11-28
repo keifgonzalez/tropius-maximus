@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu.jsx";
@@ -27,8 +28,23 @@ function seriesBucketKey(seriesRaw) {
   return { key: s, header: s, sort: 1 };
 }
 
-function normalizeOptionSearch(value) {
+export function normalizeOptionSearch(value) {
   return String(value ?? "").normalize("NFKC").toLowerCase().replace(/['’‘ʼ]/g, "").trim();
+}
+
+export function setMatchesSearch(set, term) {
+  return normalizeOptionSearch(set.name).includes(term) || normalizeOptionSearch(set.id).includes(term);
+}
+
+export function getExploreSourceSets(options, source) {
+  const groups = options.setsBySource;
+  if (groups) {
+    if (source === "Pocket") return groups.pocket ?? [];
+    if (source === "Custom") return groups.custom ?? [];
+    if (source === "TCG (JPN)") return groups.japanese ?? [];
+    if (source && source !== "Promo") return groups.tcg ?? [];
+  }
+  return options.sets ?? [];
 }
 
 function MultiSelectDropdown({
@@ -40,6 +56,8 @@ function MultiSelectDropdown({
   searchable = true,
   disabled = false,
   disabledTitle = "",
+  label,
+  onPick,
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef(null);
@@ -78,6 +96,10 @@ function MultiSelectDropdown({
 
   const filterText = normalizeOptionSearch(search);
   const optionMatches = (label) => !filterText || normalizeOptionSearch(label).includes(filterText);
+  const matchingGroups = groups?.map((group) => ({
+    ...group,
+    sets: group.sets.filter((set) => setMatchesSearch(set, filterText)),
+  })).filter((group) => group.sets.length > 0);
 
   return (
     <div className="min-w-0" title={disabled ? disabledTitle : undefined}>
@@ -92,8 +114,8 @@ function MultiSelectDropdown({
         }}
       >
         <DropdownMenuTrigger asChild>
-          <button ref={triggerRef} type="button" disabled={disabled} className={btnCls} aria-label="Choose filter options">
-            <span className="flex-1 truncate">{displayText}</span>
+          <button ref={triggerRef} type="button" disabled={disabled} className={btnCls} aria-label={label || "Choose filter options"}>
+            <span className="flex-1 truncate">{onPick ? label : displayText}</span>
             <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
           </button>
         </DropdownMenuTrigger>
@@ -117,23 +139,39 @@ function MultiSelectDropdown({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search…"
+                aria-label={groups ? "Search sets by name or code" : undefined}
                 className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-green-500"
-                onKeyDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") return;
+                  e.stopPropagation();
+                  if (e.key !== "ArrowDown") return;
+                  const firstOption = e.currentTarget.closest('[role="menu"]')
+                    ?.querySelector('[role="menuitem"], [role="menuitemcheckbox"]');
+                  if (firstOption) {
+                    e.preventDefault();
+                    firstOption.focus();
+                  }
+                }}
               />
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
-            {groups ? (
-              groups.map(({ id, header, sets }, idx) => {
-                const filtered = sets.filter((s) => optionMatches(s.name) || optionMatches(s.id));
-                if (filtered.length === 0) return null;
-                return (
+            {matchingGroups ? (
+              matchingGroups.length === 0 ? (
+                <p role="status" className="px-2.5 py-2 text-sm text-gray-500">No matching sets</p>
+              ) : (
+                matchingGroups.map(({ id, header, sets }, idx) => (
                   <div key={id}>
                     {idx > 0 && <DropdownMenuSeparator />}
                     <div className="px-2.5 py-1 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                       {header}
                     </div>
-                    {filtered.map((s) => (
+                    {sets.map((s) => onPick ? (
+                      <DropdownMenuItem key={s.id} onSelect={() => onPick(s.id)}>
+                        <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                        <span className="shrink-0 text-xs text-gray-500">{s.id}</span>
+                      </DropdownMenuItem>
+                    ) : (
                       <DropdownMenuCheckboxItem
                         key={s.id}
                         checked={values.includes(s.id)}
@@ -146,8 +184,8 @@ function MultiSelectDropdown({
                       </DropdownMenuCheckboxItem>
                     ))}
                   </div>
-                );
-              })
+                ))
+              )
             ) : (
               options
                 .map((opt) => ({ value: getVal(opt), label: getLabel(opt) }))
@@ -184,36 +222,7 @@ const SORT_LABELS = {
   recent: "Recently added",
 };
 
-export default function FilterPanel({
-  options,
-  filters,
-  onChange,
-  expanded,
-  onToggleExpand,
-  filterAvailability,
-  filterUnavailableTitle = "",
-  searchQuery = "",
-  onResetAll,
-}) {
-  const isLg = useMediaQuery("(min-width: 1024px)");
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  useEffect(() => {
-    if (isLg) setSheetOpen(false);
-  }, [isLg]);
-
-  const isFilterOn = (key) => filterAvailability?.[key] !== false;
-
-  const sourceSets = useMemo(() => {
-    if (!options.setsBySource) return options.sets || [];
-    const source = filters.source;
-    if (source === "Pocket") return options.setsBySource.pocket;
-    if (source === "Custom") return options.setsBySource.custom;
-    if (source === "TCG (JPN)") return options.setsBySource.japanese;
-    if (source && source !== "Promo") return options.setsBySource.tcg;
-    return options.sets || [];
-  }, [options.setsBySource, options.sets, filters.source]);
-
+export function ExploreSetPicker({ sourceSets, ...props }) {
   const setGroups = useMemo(() => {
     const byKey = new Map();
     for (const setRow of sourceSets) {
@@ -233,6 +242,30 @@ export default function FilterPanel({
       return a.header.localeCompare(b.header, undefined, { sensitivity: "base" });
     });
   }, [sourceSets]);
+
+  return <MultiSelectDropdown groups={setGroups} {...props} />;
+}
+
+export default function FilterPanel({
+  options,
+  filters,
+  onChange,
+  expanded,
+  onToggleExpand,
+  filterAvailability,
+  filterUnavailableTitle = "",
+  searchQuery = "",
+  onResetAll,
+}) {
+  const isLg = useMediaQuery("(min-width: 1024px)");
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  useEffect(() => {
+    if (isLg) setSheetOpen(false);
+  }, [isLg]);
+
+  const isFilterOn = (key) => filterAvailability?.[key] !== false;
+  const sourceSets = getExploreSourceSets(options, filters.source);
 
   const evoOptions = (options.evolution_lines || []).map((evo) => {
     try {
@@ -283,9 +316,7 @@ export default function FilterPanel({
     isActive(filters.raw_field_value);
 
   const setNameById = {};
-  for (const { sets } of setGroups) {
-    for (const s of sets) setNameById[s.id] = s.name;
-  }
+  for (const set of sourceSets) setNameById[set.id] = set.name;
   const evoLabelByValue = {};
   for (const opt of evoOptions) evoLabelByValue[opt.value] = opt.label;
 
@@ -496,8 +527,9 @@ export default function FilterPanel({
             title={!isFilterOn("set_id") ? filterUnavailableTitle : undefined}
           >
             <label className="block text-xs font-medium text-gray-500 mb-1 shrink-0">Set</label>
-            <MultiSelectDropdown
-              groups={setGroups}
+            <ExploreSetPicker
+              sourceSets={sourceSets}
+              label="Filter by set"
               values={filters.set_id || []}
               onChange={(v) => onChange({ set_id: v })}
               className="w-full min-w-0"
