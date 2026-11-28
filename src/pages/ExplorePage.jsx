@@ -6,7 +6,7 @@ import { cardSourceForRow } from "../lib/cardSource.js";
 
 import { useState, useEffect, useCallback, useMemo, useRef, Component, lazy, Suspense } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchCards,
   fetchCard,
@@ -351,8 +351,6 @@ export default function ExplorePage() {
     staleTime: 5 * 60_000,
   });
 
-  const exploreExactCount = false;
-
   const annotationFiltersActive = useMemo(() => {
     const f = filters;
     return (
@@ -398,14 +396,30 @@ export default function ExplorePage() {
     countParams.q === searchQuery &&
     JSON.stringify(countParams) === JSON.stringify({ q: searchQuery, ...filters });
   const currentCountIsLoading = countIsLoading && exactTotalMatchesCurrentQuery;
-  const searchCursorKey = useMemo(
-    () => JSON.stringify({ q: searchQuery, filters, pageSize }),
+  const cardListKey = useMemo(
+    () => hashKey([searchQuery, filters, pageSize]),
     [searchQuery, filters, pageSize]
   );
   const searchPageCursorsRef = useRef(new Map());
   const currentSearchCursor = searchActive
-    ? searchPageCursorsRef.current.get(searchCursorKey)?.[page] ?? null
+    ? searchPageCursorsRef.current.get(cardListKey)?.[page] ?? null
     : null;
+
+  const cardPageQuery = useCallback((targetPage, cursor = null) => ({
+    queryKey: ["cards", cardListKey, targetPage, cursor],
+    queryFn: ({ signal }) =>
+      fetchCards({
+        q: searchQuery,
+        ...filters,
+        page: targetPage,
+        page_size: pageSize,
+        ...(USE_SUPABASE_APP ? { exact_count: false } : {}),
+        // The extra row determines whether another page actually exists.
+        lookahead: true,
+        cursor,
+        signal,
+      }),
+  }), [cardListKey, searchQuery, filters, pageSize]);
 
   const {
     data: cardsResult,
@@ -415,25 +429,12 @@ export default function ExplorePage() {
     isFetching,
     isPlaceholderData: cardsPlaceholderData,
   } = useQuery({
-    queryKey: ["cards", searchQuery, filters, page, pageSize, exploreExactCount, currentSearchCursor],
-    queryFn: ({ signal }) =>
-      fetchCards({
-        q: searchQuery,
-        ...filters,
-        page,
-        page_size: pageSize,
-        ...(USE_SUPABASE_APP ? { exact_count: exploreExactCount } : {}),
-        // Planned PostgREST counts can underestimate selective filters (for
-        // example Custom cards) enough to hide page 2. Always fetch one extra
-        // row so pagination is driven by actual data as well as the count.
-        lookahead: true,
-        cursor: currentSearchCursor,
-        signal,
-      }),
+    ...cardPageQuery(page, currentSearchCursor),
     // Skip 1-2 character search terms — they produce no usable trigrams and
     // cause full sequential scans of 60K+ rows on the free-tier instance.
     enabled: !searchTooShort,
-    placeholderData: searchActive ? undefined : (prev) => prev,
+    placeholderData: searchActive ? undefined : (prev, previousQuery) =>
+      previousQuery?.queryKey[1] === cardListKey ? prev : undefined,
   });
 
   const cards = cardsResult?.cards ?? [];
@@ -465,16 +466,16 @@ export default function ExplorePage() {
     if (!searchActive || !cardsResult || cards.length === 0) return;
     const last = cards[cards.length - 1];
     if (!last?.name || !last?.id) return;
-    const cursors = searchPageCursorsRef.current.get(searchCursorKey) || { 1: null };
+    const cursors = searchPageCursorsRef.current.get(cardListKey) || { 1: null };
     cursors[page + 1] = { name: last.name, id: last.id };
-    searchPageCursorsRef.current.set(searchCursorKey, cursors);
-  }, [cards, cardsResult, page, searchActive, searchCursorKey]);
+    searchPageCursorsRef.current.set(cardListKey, cursors);
+  }, [cards, cardsResult, page, searchActive, cardListKey]);
 
   useEffect(() => {
     if (!searchActive || page <= 1) return;
-    const cursors = searchPageCursorsRef.current.get(searchCursorKey);
+    const cursors = searchPageCursorsRef.current.get(cardListKey);
     if (!cursors?.[page]) setPage(1);
-  }, [page, searchActive, searchCursorKey]);
+  }, [page, searchActive, cardListKey]);
 
   // Dedupe so each card appears once (Explore grid):
   // - Manual: same set + name + artwork URL (legacy duplicate PKs / spaced ids vs canonical).
@@ -601,33 +602,15 @@ export default function ExplorePage() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [page]);
 
-  // Prefetch adjacent pages for snappier Prev/Next navigation.
-  // Cancels any in-flight prefetches when the effect re-runs (rapid search/filter changes).
+  // Warm the next page after seeing a real lookahead row. A navigation to
+  // that page can reuse the result or join its in-flight request.
   useEffect(() => {
-    if (!USE_SUPABASE_APP || !cardsResult || sqlCards || searchActive || annotationFiltersActive) return;
-    const { total: t, page_size } = cardsResult;
-    if (typeof t !== "number" || !page_size) return;
-    const maxPage = Math.max(1, Math.ceil(t / page_size));
-    // Prefetch uses planned counts; exact counts here multiply DB work without improving navigation.
-    const prefetchExact = exploreExactCount;
-    const base = { q: searchQuery, ...filters, page_size };
-    const prefetchKeys = [];
-    const opts = (pg) => {
-      const queryKey = ["cards", searchQuery, filters, pg, pageSize, prefetchExact];
-      prefetchKeys.push(queryKey);
-      return {
-        queryKey,
-        queryFn: ({ signal }) => fetchCards({ ...base, page: pg, exact_count: prefetchExact, signal }),
-      };
-    };
-    if (page > 1) queryClient.prefetchQuery(opts(page - 1));
-    if (page < maxPage) queryClient.prefetchQuery(opts(page + 1));
-    return () => {
-      for (const queryKey of prefetchKeys) {
-        queryClient.cancelQueries({ queryKey, exact: true });
-      }
-    };
-  }, [page, searchQuery, filters, pageSize, cardsResult, sqlCards, queryClient, exploreExactCount, annotationFiltersActive]);
+    if (
+      !USE_SUPABASE_APP || !cardsResult?.has_more || cardsPlaceholderData ||
+      sqlCards || searchActive || annotationFiltersActive
+    ) return;
+    void queryClient.prefetchQuery(cardPageQuery(page + 1));
+  }, [page, cardPageQuery, cardsResult?.has_more, cardsPlaceholderData, sqlCards, queryClient, searchActive, annotationFiltersActive]);
 
   // Prefetch prev/next card detail when the modal is open for instant Prev/Next navigation.
   // Derive source the same way the modal does so query keys match and prefetch actually hits cache.

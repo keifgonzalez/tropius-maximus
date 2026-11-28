@@ -1011,11 +1011,18 @@ export async function fetchCards(params = {}) {
     hasJumboCardFilter ||
     hasAnnotationIssueFilter;
 
+  const qTrim = String(q ?? "").trim();
+  const useSearchCursor = Boolean(qTrim && lookahead);
+  const usePromoProjection = source === "Promo" && lookahead && !exact_count && !ids_only &&
+    !qTrim && !useAnnInner && !String(has_image || "").trim();
+
   // Grid only: omit profiles embeds — nested embeds can interact badly with nullable FKs
   // under some PostgREST versions; creator/editor names are optional here (detail view embeds).
   const annSelect = useAnnInner
     ? `annotations!inner(image_override, extra, weather, environment, pkmn_region, background_pokemon, actions, pose, updated_by, updated_at)`
-    : `annotations(image_override, extra, updated_by, updated_at)`;
+    : usePromoProjection
+      ? "annotations:explore_grid_annotation"
+      : "annotations(image_override, extra, updated_by, updated_at)";
 
   const selectColumns = ids_only
     ? (useAnnInner ? `id, set_id, number, origin, ${annSelect}` : "id, set_id, number, origin")
@@ -1049,8 +1056,6 @@ export async function fetchCards(params = {}) {
     query = excludeHiddenJapaneseSets(query);
   }
 
-  const qTrim = String(q ?? "").trim();
-  const useSearchCursor = Boolean(qTrim && lookahead);
   if (qTrim) {
     const likePattern = buildNameSearchIlikePattern(qTrim);
     if (Array.isArray(likePattern)) {
@@ -1205,6 +1210,9 @@ export async function fetchCards(params = {}) {
     } else if (sort_by === "recent") {
       // Keep "recent desc" stable when many rows share near-identical created_at.
       query = query.order("id", { ascending, nullsFirst: false });
+    } else if (source === "Promo") {
+      // Different query plans must agree on which equal-name rows cross the page boundary.
+      query = query.order("id", { ascending: true, nullsFirst: false });
     }
     query = query.range(offset, offset + pageSizeInt - 1 + (lookahead ? 1 : 0));
   }
